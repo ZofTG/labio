@@ -21,6 +21,7 @@ assert_file_extension
 from datetime import date, datetime
 from os.path import exists
 from tkinter.messagebox import askyesno
+from tkinter import Tk
 
 import pandas as pd
 from numpy import ndarray, unique
@@ -105,7 +106,11 @@ def check_writing_file(
     filename = file
     while exists(filename):
         msg = f"The {file} file already exist.\nDo you want to replace it?"
+        root = Tk()
+        root.wm_attributes("-topmost", 1)
+        root.withdraw()
         yes = askyesno(title="Replace", message=msg)
+        root.destroy()
         if yes:
             return filename
         filename = file.replace(f".{ext}", f"_1.{ext}")
