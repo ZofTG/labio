@@ -1,16 +1,15 @@
 [build-system]
 requires = [
-    "setuptools",
-    "wheel",
     "pandas",
     "numpy",
+    "tk",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "btspy"
+name = "labio"
 authors = [{ name="Luca Zoffoli", email="lzoffoli@technogym.com" }]
-description = "A small package to read BTSBioengineering tdf and emt files."
+description = "A small package to *READ* and *WRITE* data obtained from different sources."
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -25,5 +24,5 @@ dependencies = {file = ["requirements.txt"]}
 readme = {file = "README.md"}
 
 [project.urls]
-"Homepage" = "https://github.com/ZofTG/btspy"
-"Bug Tracker" = "https://github.com/ZofTG/btspy/issues"
+"Homepage" = "https://github.com/ZofTG/labio"
+"Bug Tracker" = "https://github.com/ZofTG/labio/issues"
