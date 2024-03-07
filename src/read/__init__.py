@@ -3,4 +3,4 @@
 from .btsbioengineering import *
 from .cosmed import *
 from .opensim import *
-from .npz import *
+from .ircam import *
