@@ -1,30 +1,14 @@
 """products module"""
 
-#! imports
+#! IMPORTS
 
 
 import copy
-from os.path import exists
 from abc import ABCMeta, abstractmethod
 from types import NoneType
-from .core import G, der1, der2, polyval, symmetry
 
 
-#! exports
-
-
-__all__ = [
-    "PRODUCTS",
-    "ChestPress",
-    "LegPress",
-    "LegPressREV",
-    "LowRow",
-    "VerticalTraction",
-    "Product",
-]
-
-
-#! classes
+#! CLASSES
 
 
 class Product(metaclass=ABCMeta):
@@ -149,7 +133,7 @@ class Product(metaclass=ABCMeta):
         pos = list(map(self._get_lever_position, pos, trq))
         ps0 = [pos[i] for i in range(n_samples - 2)]
         ps2 = [pos[i] for i in range(2, n_samples)]
-        return list(map(der1, ps0, ps2, tm0, tm2))
+        return list(map(self.der1, ps0, ps2, tm0, tm2))
 
     @property
     def load_kgf(self):
@@ -159,6 +143,133 @@ class Product(metaclass=ABCMeta):
         if mtr is None or lvr is None:
             return None
         return list(map(lambda x, y: x + y, mtr, lvr))
+
+    def polyval(
+        self,
+        coefs: list[float | int],
+        value: float | int,
+    ):
+        """
+        apply the polynomial coefficients to a given value.
+
+        Parameters
+        ----------
+        coefs : list[float  |  int]
+            the coefficients of the polynomial (higher order first)
+
+        value : float | int
+            the value to be be multiplied by the coefficients
+
+        Returns
+        -------
+        y: float
+            the result of the calculation.
+        """
+        out = 0
+        for i, c in enumerate(coefs):
+            out += c * value ** (len(coefs) - i - 1)
+        return float(out)
+
+    def symmetry(
+        self,
+        val1: float | int,
+        val2: float | int,
+    ):
+        """
+        return the symmetry index between the two values
+
+        Parameters
+        ----------
+        val1 : list[float  |  int]
+            the first array
+
+        val2 : list[float  |  int]
+            the second array
+
+        Returns
+        -------
+        sym: list[float]
+            the symmetry at each time instant
+        """
+        num = abs(val2) - abs(val1)
+        den = abs(val1) + abs(val2)
+        return 100.0 * (1 if den == 0 else num / den)
+
+    def der1(
+        self,
+        y0: float | int,
+        y2: float | int,
+        x0: float | int,
+        x2: float | int,
+    ):
+        """
+        return the speed value at time instant 1 given the samples at time instant
+        0 and 2.
+
+        Parameters
+        ----------
+        y0: float | int,
+            the parameter value at instant 0
+
+        y2: float | int,
+            the parameter value at instant 2
+
+        x0: float | int,
+            the time instant 0
+
+        x2: float | int,
+            the time instant 2
+
+        Returns
+        -------
+        speed: float
+            the first derivative at time instant 1
+        """
+        num = y2 - y0
+        den = x2 - x0
+        return 0 if den == 0 else (num / den)
+
+    def der2(
+        self,
+        y0: float | int,
+        y1: float | int,
+        y2: float | int,
+        x0: float | int,
+        x1: float | int,
+        x2: float | int,
+    ):
+        """
+        return the second derivative at time instant 1 given the samples at time
+        instant 0 and 2.
+
+        Parameters
+        ----------
+        y0: float | int,
+            the parameter value at instant 0
+
+        y1: float | int,
+            the parameter value at instant 1
+
+        y2: float | int,
+            the parameter value at instant 2
+
+        x0: float | int,
+            the time instant 0
+
+        x1: float | int
+            the time instant 1
+
+        x2: float | int,
+            the time instant 2
+
+        Returns
+        -------
+        acc: float
+            the second derivative at time instant 1
+        """
+        d10 = self.der1(y0, y1, x0, x1)
+        d12 = self.der1(y1, y2, x1, x2)
+        return self.der1(d10, d12, (x0 + x1) / 2, (x1 + x2) / 2)
 
     def slice(
         self,
@@ -362,7 +473,7 @@ class Product(metaclass=ABCMeta):
             arr += [[float(obj[j][i]) for j in range(len(obj))]]
         if len(cells) > 0:
             pos, load, time, cell1, cell2 = arr
-            sym = list(map(symmetry, cell1, cell2))
+            sym = list(map(cls.symmetry, cell1, cell2))
         else:
             pos, load, time = arr
             sym = [None for i in range(len(pos))]
@@ -551,7 +662,7 @@ class Product(metaclass=ABCMeta):
         lever_position: list[float]
             the lever position in m
         """
-        cor = max(polyval(self.rom_correction_coefs, abs(torque)), 0)
+        cor = max(self.polyval(self.rom_correction_coefs, abs(torque)), 0)
         return (cor + position) * self.pulley_radius / self.lever_radius
 
     def _get_lever_inertia(
@@ -593,7 +704,7 @@ class Product(metaclass=ABCMeta):
         inertial_force: float
             the inertial force in kgf
         """
-        ang_acc = der2(pos0, pos1, pos2, time0, time1, time2) / self.lever_radius
+        ang_acc = self.der2(pos0, pos1, pos2, time0, time1, time2) / self.lever_radius
         inertia = self._get_lever_weight(pos1) * ang_acc * self.lever_com_radius
         return inertia * self.lever_number
 
@@ -614,7 +725,7 @@ class Product(metaclass=ABCMeta):
         load: float,
             the load corresponding to the entered torque in kgf
         """
-        return polyval(self.load_conversion_coefs, torque)
+        return self.polyval(self.load_conversion_coefs, torque)
 
     def is_empty(self):
         """
@@ -953,7 +1064,7 @@ class VerticalTraction(Product):
         betas = [-0.000000000192, -0.000000366669, +0.000154455574]
         betas += [-0.048948857016, +0.105833758047]
         pos = min(max(position, rom0), rom1)
-        return polyval(betas, pos)
+        return self.polyval(betas, pos)
 
     @property
     def rm1_coefs(
@@ -1128,7 +1239,7 @@ class LowRow(Product):
         betas = [0.000000002839, -0.000002774527, 0.000233480221]
         betas += [0.059293138715, 8.971309619962]
         pos = min(max(position, rom0), rom1)
-        return polyval(betas, pos)
+        return self.polyval(betas, pos)
 
     @property
     def rm1_coefs(
@@ -1306,7 +1417,7 @@ class LegPress(Product):
         """
         pos = min(max(position, rom0), rom1) / (rom1 - rom0)
         betas = [0.4, 0.6]
-        return polyval(betas, pos)
+        return self.polyval(betas, pos)
 
     @property
     def rm1_coefs(
@@ -1332,8 +1443,19 @@ class LegPressREV(LegPress):
         return "LEG PRESS REV"
 
 
-#! constants
+#! CONSTANTS
 
+
+__all__ = [
+    "PRODUCTS",
+    "ChestPress",
+    "LegPress",
+    "LegPressREV",
+    "LowRow",
+    "VerticalTraction",
+]
+
+G = 9.80665
 
 PRODUCTS = {
     "CHEST PRESS": ChestPress,

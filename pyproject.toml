@@ -3,6 +3,8 @@ requires = [
     "pandas",
     "numpy",
     "tk",
+    "setuptools",
+    "wheel",
 ]
 build-backend = "setuptools.build_meta"
 

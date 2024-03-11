@@ -4,13 +4,12 @@
 
 
 from os.path import dirname, join
-from os import getcwd
 from pandas import DataFrame
 from numpy import isclose
 import sys
 
-sys.path += [getcwd()]
-import src as labio
+sys.path += ["src"]
+import labio
 
 
 #! CONSTANTS
