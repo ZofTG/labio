@@ -6,7 +6,7 @@
 import copy
 from abc import ABCMeta, abstractmethod
 from types import NoneType
-
+from os.path import exists
 
 #! CLASSES
 
