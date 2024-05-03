@@ -49,6 +49,16 @@ class Product(metaclass=ABCMeta):
         self.set_raw_symmetry(symm)
 
     @property
+    def raw_position_rad(self):
+        """return the raw postition in radians"""
+        return self._raw_position_rad
+
+    @property
+    def raw_torque_nm(self):
+        """return the raw torque in Nm"""
+        return self._raw_torque_nm
+
+    @property
     def position_m(self):
         """return the calculated position"""
         if self._raw_position_rad is None or self._raw_torque_nm is None:
