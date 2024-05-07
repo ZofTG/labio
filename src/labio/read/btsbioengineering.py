@@ -792,13 +792,16 @@ def _read_platforms_calibration(
     platforms = {}
     for plt in plat_map:
         obj = {}
-        obj["CHANNEL"] = plt
         label = _get_label(fid.read(256))
         frames = struct.unpack("i", fid.read(4))[0]
         obj["SIZE"] = np.array(struct.unpack("ff", fid.read(8)))
         obj["SIZE"] = obj["SIZE"].astype(np.float32)
-        obj["FEATURES"] = read_frames(fid, frames, cam_map)
-        platforms[label] = obj
+        if frames != 0:
+            obj["FEATURES"] = read_frames(fid, frames, cam_map)
+            obj['LABEL'] = label
+        else:
+            obj["FEATURES"] = np.ones((frames, len(cam_map), 2, 0)) * np.nan
+            obj['LABEL'] = ""
 
     return {
         "PLATFORMS": platforms,
