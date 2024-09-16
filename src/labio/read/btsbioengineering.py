@@ -172,9 +172,9 @@ def _read_frames_rts(
             nfeats = np.array(struct.unpack("i", fid.read(4)))[0]
             fid.seek(4, 1)
             vals = struct.unpack("f" * 2 * nfeats, fid.read(8 * nfeats))
-            vals = np.reshape(vals, (2, nfeats), "F").T
+            vals = np.reshape(vals, shape=(2, nfeats), order="F").T
             max_feats = max(max_feats, vals.shape[0])
-            frame += [np.reshape(vals, (2, nfeats), "F").T]
+            frame += [np.reshape(vals, shape=(2, nfeats), order="F").T]
         frames += [frame]
 
     # arrange as numpy array
@@ -213,14 +213,14 @@ def _read_frames_pck(
     ncams = len(cams)
     nsamp = int(ncams * nframes)
     nfeats = struct.unpack(f"{nsamp}h", fid.read(2 * nsamp))
-    nfeats = np.reshape(nfeats, (ncams, nframes), "F")
+    nfeats = np.reshape(nfeats, shape=(ncams, nframes), order="F")
     max_feats = int(np.max(nfeats))
     feats = np.ones((nframes, ncams, max_feats, 2)) * np.nan
     for frm in np.arange(nframes):
         for cam in np.arange(ncams):
             num = int(2 * nfeats[cam, frm])
             vals = struct.unpack(f"{num}f", fid.read(4 * num))
-            vals = np.reshape(vals, (2, nfeats[cam, frm]), "F").T
+            vals = np.reshape(vals, shape=(2, nfeats[cam, frm]), order="F").T
             feats[frm, cam, np.arange(vals.shape[0]), :] = vals
     return feats.astype(np.float32)
 
@@ -254,13 +254,13 @@ def _read_frames_syn(
     shape = (nframes, ncams)
     nsamp = int(np.prod(shape))
     nfeats = struct.unpack(f"{nsamp}h", fid.read(2 * nsamp))
-    nfeats = np.reshape(nfeats, shape, "F")
+    nfeats = np.reshape(nfeats, shape=shape, order="F")
     feats = np.ones((nframes, ncams, max_feats, 2)) * np.nan
     for frm in np.arange(nframes):
         for cam in np.arange(ncams):
             nsamp = 2 * max_feats
             vals = struct.unpack(f"{nsamp}f", fid.read(4 * nsamp))
-            vals = np.reshape(vals, (2, max_feats), "F")
+            vals = np.reshape(vals, shape=(2, max_feats), order="F")
             vals = vals[:, : nfeats[cam, frm]].T
             feats[frm, cam, np.arange(vals.shape[0]), :] = vals
     return feats.astype(np.float32)
@@ -313,7 +313,7 @@ def _read_tracks(
         shape = (2, nseg)
         nsamp = int(np.prod(shape))
         segments = struct.unpack(f"{nsamp}i", fid.read(4 * nsamp))
-        segments = np.reshape(segments, shape, "F").T
+        segments = np.reshape(segments, shape=shape, order="F").T
 
         # read the data for the actual track
         for start, stop in segments:
@@ -371,7 +371,7 @@ def _read_frames(
     # get the available data
     nsamp = nchannels * ntracks * nframes
     data = struct.unpack(f"{nsamp}f", fid.read(4 * nsamp))
-    data = np.reshape(data, (ntracks, nframes, nchannels), "F")
+    data = np.reshape(data, shape=(ntracks, nframes, nchannels), order="F")
     data = data.astype(np.float32)
 
     # return
@@ -410,7 +410,7 @@ def _read_camera_params(
     else:
         raise ValueError("cam_m value not recognized")
     cam_d = np.array(struct.unpack("3f", fid.read(12)), dtype=np.float32)
-    cam_r = np.reshape(struct.unpack("9f", fid.read(36)), (3, 3), "F")
+    cam_r = np.reshape(struct.unpack("9f", fid.read(36)), shape=(3, 3), order="F")
     cam_r = cam_r.astype(np.float32)
     cam_t = np.array(struct.unpack("3f", fid.read(12))).astype(np.float32)
 
@@ -422,25 +422,33 @@ def _read_camera_params(
     for i in cam_map:
         if 1 == block["Format"]:  # Seelab type 1 calibration
             params = {
-                "R": np.reshape(struct.unpack("9d", fid.read(72)), (3, 3), "F"),
+                "R": np.reshape(
+                    struct.unpack("9d", fid.read(72)), shape=(3, 3), order="F"
+                ),
                 "T": np.array(struct.unpack("3d", fid.read(24))),
                 "F": np.array(struct.unpack("2d", fid.read(16))),
                 "C": np.array(struct.unpack("2d", fid.read(16))),
                 "K1": np.array(struct.unpack("2d", fid.read(16))),
                 "K2": np.array(struct.unpack("2d", fid.read(16))),
                 "K3": np.array(struct.unpack("2d", fid.read(16))),
-                "VP": np.reshape(struct.unpack("4i", fid.read(16)), (2, 2)),
+                "VP": np.reshape(
+                    struct.unpack("4i", fid.read(16)), shape=(2, 2), order="F"
+                ),
                 # origin = VP[:, 0] size = VP[:, 1]
             }
         elif 2 == block["Format"]:  # BTS
             params = {
-                "R": np.reshape(struct.unpack("9d", fid.read(72)), (3, 3), "F"),
+                "R": np.reshape(
+                    struct.unpack("9d", fid.read(72)), shape=(3, 3), order="F"
+                ),
                 "T": np.array(struct.unpack("3d", fid.read(24))),
                 "F": np.array(struct.unpack("1d", fid.read(16))),
                 "C": np.array(struct.unpack("2d", fid.read(16))),
                 "KX": np.array(struct.unpack("70d", fid.read(560))),
                 "KY": np.array(struct.unpack("70d", fid.read(560))),
-                "VP": np.reshape(struct.unpack("4i", fid.read(16)), (2, 2), "F"),
+                "VP": np.reshape(
+                    struct.unpack("4i", fid.read(16)), shape=(2, 2), order="F"
+                ),
                 # origin = VP[:, 0] size = VP[:, 1]
             }
         else:
@@ -596,7 +604,7 @@ def _read_camera_tracked(
         return None
     nframes, freq, time0, ntracks = struct.unpack("iifi", fid.read(16))
     dims = np.array(struct.unpack("3f", fid.read(12)))
-    rmat = np.reshape(struct.unpack("9f", fid.read(36)), (3, 3), "F")
+    rmat = np.reshape(struct.unpack("9f", fid.read(36)), shape=(3, 3), order="F")
     tras = np.array(struct.unpack("3f", fid.read(12)))
     fid.seek(4, 1)
 
@@ -606,7 +614,7 @@ def _read_camera_tracked(
         fid.seek(4, 1)
         nsamp = 2 * nlinks
         links = struct.unpack(f"{nsamp}i", fid.read(nsamp * 4))
-        links = np.reshape(links, (2, nlinks), "F").T
+        links = np.reshape(links, shape=(2, nlinks), order="F").T
     else:
         links = np.array([])
 
@@ -677,7 +685,9 @@ def _read_camera_configuration(
         lensname = _get_label(fid.read(32))
         camtype = _get_label(fid.read(32))
         camname = _get_label(fid.read(32))
-        viewport = np.reshape(struct.unpack("i" * 4, fid.read(16)), (2, 2))
+        viewport = np.reshape(
+            struct.unpack("i" * 4, fid.read(16)), shape=(2, 2), order="F"
+        )
         cameras[camname] = {
             "INDEX": logicalindex,
             "TYPE": camtype,
@@ -725,7 +735,7 @@ def _read_platforms_params(
     for plat in plat_map:
         lbl = _get_label(fid.read(256))
         size = np.array(struct.unpack("ff", fid.read(8))).astype(np.float32)
-        pos = np.reshape(struct.unpack("12f", fid.read(48)), (3, 4), "F").T
+        pos = np.reshape(struct.unpack("12f", fid.read(48)), shape=(3, 4), order="F").T
         platforms += [
             {
                 "SIZE": size,
@@ -798,10 +808,10 @@ def _read_platforms_calibration(
         obj["SIZE"] = obj["SIZE"].astype(np.float32)
         if frames != 0:
             obj["FEATURES"] = read_frames(fid, frames, cam_map)
-            obj['LABEL'] = label
+            obj["LABEL"] = label
         else:
             obj["FEATURES"] = np.ones((frames, len(cam_map), 2, 0)) * np.nan
-            obj['LABEL'] = ""
+            obj["LABEL"] = ""
 
     return {
         "PLATFORMS": platforms,
@@ -866,7 +876,7 @@ def _read_platforms_raw(
         # get the available data
         nsamp = nchns * ntracks * nframes
         obj = struct.unpack(f"{nsamp}f", fid.read(4 * nsamp))
-        obj = np.reshape(obj, (nframes, ntracks, nchns), "F")
+        obj = np.reshape(obj, shape=(nframes, ntracks, nchns), order="F")
         obj = np.transpose(obj, axes=[1, 0, 2]).astype(np.float32)
         tracks = dict(zip(lbl, obj))
 
@@ -975,7 +985,7 @@ def _read_platforms_tracked(
 
     # get the calibration data
     cald = np.array(struct.unpack("f" * 3, fid.read(12)))
-    calr = np.reshape(struct.unpack("f" * 9, fid.read(36)), (3, 3), "F")
+    calr = np.reshape(struct.unpack("f" * 9, fid.read(36)), shape=(3, 3), order="F")
     calt = np.array(struct.unpack("f" * 3, fid.read(12)))
     fid.seek(4, 1)
 
@@ -1054,7 +1064,9 @@ def _read_volume(
             fid.seek(4, 1)
             nsamp = 2 * nseg
             segments = struct.unpack(f"{nsamp}i", fid.read(4 * nsamp))
-            segments = np.reshape(segments, (2, nseg), "F").astype(np.float32)
+            segments = np.reshape(segments, shape=(2, nseg), order="F").astype(
+                np.float32
+            )
 
             # read the data for the actual track
             arr = np.ones((nframes, 5)) * np.nan
