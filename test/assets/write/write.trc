@@ -1,4 +1,4 @@
-PathFileType	4	(X/Y/Z)	c:\Users\lzoffoli\OneDrive - Technogym SPA\custom_app\labio\test\assets\write\write.trc
+PathFileType	4	(X/Y/Z)	test\assets\write\write.trc
 DataRate	CameraRate	NumFrames	NumMarkers	Units	OrigDataRate	OrigDataStartFrame	OrigNumFrames
 500	500	445	51	mm	500	1	445
 Frame#	Time	CELL.1			CELL.2			CELL.3			CELL.4			CELL.5			CELL.6			L.Toe			L.MidFoot			L.Heel			L.Malleolus.Med			L.Malleolus.Lat			L.Shank			L.Fibula			L.Tibia			L.Condyle.Lat			L.Condyle.Med			L.Thigh			L.Trochanter			R.Toe			R.MidFoot			R.Heel			R.Malleolus.Med			R.Malleolus.Lat			R.Shank			R.Tibia			R.Fibula			R.Condyle.Med			R.Condyle.Lat			R.Thigh			R.Throchanter			L.ASIS			L.PSIS			R.PSIS			R.ASIS			C7			Clavicle			Sternum			L.Acromion			L.Shoulder			L.Elbow.Med			L.Elbow.Lat			L.Wrist.Lat			L.Wrist.Med			L.Hand			R.Acromion			R.Shoulder			R.Elbow.Med			R.Elbow.Lat			R.Wrist.Med			R.Wrist.Lat			R.Hand		

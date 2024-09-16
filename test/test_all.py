@@ -110,9 +110,9 @@ def test_biostrength():
 
 
 if __name__ == "__main__":
+    test_tdf()
     test_biostrength()
     test_trc()
     test_mot()
     test_cosmed_xlsx()
     test_emt()
-    test_tdf()
