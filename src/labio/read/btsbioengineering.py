@@ -903,6 +903,36 @@ def _read_platforms_raw(
     }
 
 
+def _get_muscle_name(raw_muscle_name: str):
+    """
+    private method used understand the muscle side according to its name
+
+    Parameters
+    ----------
+    raw_muscle_name: str
+        the raw muscle name
+
+    Returns
+    -------
+    name: tuple[str, str | None]
+        the muscle name divided as (<NAME>, <SIDE>). If proper side is not
+        found (e.g. for Rectus Abdominis), the <SIDE> term is None.
+    """
+    # split the raw muscle name in words
+    splits = raw_muscle_name.split(" ")
+
+    # get the index of the word denoting the side
+    side_idx = [i for i, v in enumerate(splits) if v in ["Left", "Right"]]
+    side_idx = None if len(side_idx) == 0 else side_idx[0]
+
+    # adjust the muscle name
+    side = None if side_idx is None else splits.pop(side_idx)
+    muscle = "_".join(splits[:2])
+
+    # return the tuple
+    return (muscle, side)
+
+
 def _read_emg(
     fid: BufferedReader,
     blocks: list[dict[str, int]],
@@ -945,11 +975,10 @@ def _read_emg(
 
     # convert the tracks in a single pandas dataframe
     tracks = pd.DataFrame({i: v.flatten() for i, v in tracks.items()})
-    col = pd.MultiIndex.from_product([tracks.columns.to_numpy(), ["V"]])
-    tracks.columns = col
+    cols = [_get_muscle_name(i) + ("V",) for i in list(tracks.keys())]
+    tracks.columns = pd.MultiIndex.from_product(cols)
     idx = pd.Index(np.arange(tracks.shape[0]) / freq + time0, name="TIME [s]")
     tracks.index = idx
-
     return {
         "TRACKS": tracks,
         "EMG_CHANNELS": chn_map.astype(np.int16),
