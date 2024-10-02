@@ -927,7 +927,7 @@ def _get_muscle_name(raw_muscle_name: str):
 
     # adjust the muscle name
     side = None if side_idx is None else splits.pop(side_idx)
-    muscle = "_".join(splits[:2])
+    muscle = " ".join([i.capitalize() for i in splits[:2]])
 
     # return the tuple
     return (muscle, side)
@@ -976,11 +976,11 @@ def _read_emg(
     # convert the tracks in a single pandas dataframe
     tracks = pd.DataFrame({i: v.flatten() for i, v in tracks.items()})
     cols = [_get_muscle_name(i) + ("V",) for i in list(tracks.keys())]
-    tracks.columns = pd.MultiIndex.from_product(cols)
+    tracks.columns = pd.MultiIndex.from_tuples(cols)
     idx = pd.Index(np.arange(tracks.shape[0]) / freq + time0, name="TIME [s]")
     tracks.index = idx
     return {
-        "TRACKS": tracks,
+        "TRACKS": tracks.sort_index(axis=1),
         "EMG_CHANNELS": chn_map.astype(np.int16),
     }
 
