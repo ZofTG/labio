@@ -4,422 +4,223 @@
 
 
 import copy
-from abc import abstractmethod
-from types import NoneType
 from os.path import exists
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
+
 
 #! CLASSES
 
 
 class Product:
-    """(Abstract) Product class object"""
+    """Product class object"""
 
-    _raw_position_rad: list[float] | None
-    _raw_torque_nm: list[float] | None
-    _raw_time_s: list[float] | None
-    _raw_symmetry: list[float] | None
+    # * class variables
 
-    def __init__(
-        self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
-    ):
-        # check the entries
-        entries = [time, position, torque, symm]
-        types = (int, float, NoneType)
-        n_samples = []
-        for entry in entries:
-            if isinstance(entry, list):
-                float_ok = list(map(lambda x: isinstance(x, types), entry))
-                if not all(float_ok):
-                    msg = f"all values in {entry} must be int or float."
-                    raise ValueError(msg)
-                n_samples += [len(entry)]
-            elif not isinstance(entry, NoneType):
-                raise TypeError(f"{entry} must be a list or None.")
-        if len(n_samples) > 1:
-            if not all(i == n_samples[0] for i in n_samples):
-                raise ValueError("all entries must have the same length.")
+    _spring_correction: float = 1
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 0
+    _camme_ratio: float = 1
+    _lever_number: int = 1
+    _lever_radius_m: float = 0.054
+    _rom_correction_coefs: list[float] = [0, 0, 0]
+    _rm1_coefs: list[float] = [1, 0]
 
-        self.set_raw_time_s(time)
-        self.set_raw_position_rad(position)
-        self.set_raw_torque_nm(torque)
-        self.set_raw_symmetry(symm)
+    _position_motor_rad: NDArray[np.floating[Any]]
+    _load_motor_nm: NDArray[np.floating[Any]]
+    _time_s: NDArray[np.floating[Any]]
+
+    # * attributes
 
     @property
-    def raw_position_rad(self):
+    def time_s(self):
+        """return the time of each sample"""
+        return self._time_s[1:-1].astype(float)
+
+    @property
+    def position_motor_rad(self):
         """return the raw postition in radians"""
-        return self._raw_position_rad
+        return self._position_motor_rad[1:-1].astype(float)
 
     @property
-    def raw_torque_nm(self):
-        """return the raw torque in Nm"""
-        return self._raw_torque_nm
+    def pulley_radius_m(self):
+        """pulley radius coefficient in m for each time sample"""
+        return np.tile(self._spring_correction, len(self.load_motor_nm))
 
     @property
-    def position_m(self):
-        """return the calculated position"""
-        if self._raw_position_rad is None or self._raw_torque_nm is None:
-            return None
-        rad = self._raw_position_rad
-        trq = self._raw_torque_nm
-        pos = list(map(self._get_lever_position, rad, trq))
-        samples = len(pos)
-        return [pos[i] for i in range(1, samples - 1)]
+    def lever_weight_kgf(self):
+        """lever weight coefficient in kgf for each time sample"""
+        return np.tile(self._lever_weight_kgf, len(self.load_motor_nm))
 
     @property
-    def lever_kgf(self):
+    def camme_ratio(self):
+        """camme ratio coefficient for each time sample"""
+        return np.tile(self._camme_ratio, len(self.load_motor_nm))
+
+    @property
+    def spring_correction(self):
+        """spring correction coefficient for each time sample"""
+        return np.tile(self._spring_correction, len(self.load_motor_nm))
+
+    @property
+    def load_motor_nm(self):
+        """return the motor load in Nm"""
+        return self._load_motor_nm[1:-1].astype(float)
+
+    @property
+    def lever_number(self):
+        """number of levers"""
+        return np.tile(self._lever_number, len(self.load_motor_nm))
+
+    @property
+    def rom_correction_coefs(self):
+        """rom correction coefficients with higher order first"""
+        return self._rom_correction_coefs
+
+    @property
+    def position_lever_deg(self):
+        """return the calculated position of the lever in degrees"""
+        rad = self.position_motor_rad
+        rad += np.polyval(self.rom_correction_coefs, self.load_motor_nm)
+        return (rad * 180 / np.pi / self.lever_number).astype(float)
+
+    @property
+    def lever_radius_m(self):
+        """radius of the lever(s) in m for each sample"""
+        return np.tile(self._lever_radius_m, len(self.load_motor_nm)).astype(float)
+
+    @property
+    def position_lever_m(self):
+        """return the calculated position of the lever in meters"""
+        return (self.position_lever_deg / 180 * np.pi * self.lever_radius_m).astype(
+            float
+        )
+
+    @property
+    def load_lever_kgf(self):
         """return the calculated lever weight"""
-        pos = self.position_m
-        if pos is None:
-            return None
-        return list(map(self._get_lever_weight, pos))
+        return (
+            self.load_motor_nm
+            / self.pulley_radius_m
+            / G
+            / self.lever_number
+            * self.camme_ratio
+            / self.spring_correction
+            + self.lever_weight_kgf
+        ).astype(float)
 
     @property
-    def inertia_kgf(self):
-        """return the calculated inertia"""
-        tmr = self._raw_time_s
-        trq = self._raw_torque_nm
-        pos = self._raw_position_rad
-        if tmr is None or trq is None or pos is None:
-            return None
-        n_samples = len(tmr)
-        tm0 = [tmr[i] for i in range(n_samples - 2)]
-        tm1 = [tmr[i] for i in range(1, n_samples - 1)]
-        tm2 = [tmr[i] for i in range(2, n_samples)]
-        pos = list(map(self._get_lever_position, pos, trq))
-        ps0 = [pos[i] for i in range(n_samples - 2)]
-        ps1 = [pos[i] for i in range(1, n_samples - 1)]
-        ps2 = [pos[i] for i in range(2, n_samples)]
-        return list(map(self._get_lever_inertia, tm0, tm1, tm2, ps0, ps1, ps2))
+    def speed_motor_rads(self):
+        """
+        return the calculated speed at the motor level in rad for each sample
+        """
+        num = self._position_motor_rad[:-2] - self._position_motor_rad[2:]
+        den = self._time_s[:-2] - self._time_s[2:]
+        return (num / den).astype(float)
 
     @property
-    def motor_kgf(self):
-        """return the motor load"""
-        if self._raw_torque_nm is None:
-            return None
-        n_samples = len(self._raw_torque_nm)
-        trq = [self._raw_torque_nm[i] for i in range(1, n_samples - 1)]
-        return list(map(self._get_load, trq))
+    def speed_lever_degs(self):
+        """
+        return the calculated speed at the lever level in deg/s for each sample
+        """
+        rad = self._position_motor_rad
+        rad += np.polyval(self.rom_correction_coefs, self._load_motor_nm)
+        deg = rad * 180 / np.pi / self._lever_number
+        deg = deg * self._lever_radius_m / self._pulley_radius_m
+        num = deg[:-2] - deg[2:]
+        den = self._time_s[:-2] - self._time_s[2:]
+        return (num / den).astype(float)
+
+    @property
+    def speed_lever_ms(self):
+        """
+        return the calculated speed at the lever level in m/s for each sample
+        """
+        speed = self.speed_lever_degs / 180 * np.pi / self.lever_radius_m
+        return speed.astype(float)
 
     @property
     def power_w(self):
         """return the calculated power"""
-        frz = self.load_kgf
-        spd = self.speed_ms
-        if frz is None or spd is None:
-            return None
-        return list(map(lambda x, y: x * y * G, frz, spd))
+        return self.load_motor_nm * self.speed_motor_rads
 
     @property
-    def time_s(self):
-        """return the calculated time"""
-        if self._raw_time_s is None:
-            return None
-        n_samples = len(self._raw_time_s)
-        return [self._raw_time_s[i] for i in range(1, n_samples - 1)]
+    def rm1_coefs(self):
+        """1RM coefficients with higher order first"""
+        return self._rm1_coefs
 
     @property
-    def speed_ms(self):
-        """return the calculated speed"""
-        trq = self._raw_torque_nm
-        pos = self._raw_position_rad
-        tim = self._raw_time_s
-        if tim is None or pos is None or trq is None:
-            return None
-        n_samples = len(tim)
-        tm0 = [tim[i] for i in range(n_samples - 2)]
-        tm2 = [tim[i] for i in range(2, n_samples)]
-        pos = list(map(self._get_lever_position, pos, trq))
-        ps0 = [pos[i] for i in range(n_samples - 2)]
-        ps2 = [pos[i] for i in range(2, n_samples)]
-        return list(map(self.der1, ps0, ps2, tm0, tm2))
+    def name(self):
+        """the name of the product"""
+        return type(self).__name__
 
-    @property
-    def load_kgf(self):
-        """return the calculated load"""
-        mtr = self.motor_kgf
-        lvr = self.lever_kgf
-        if mtr is None or lvr is None:
-            return None
-        return list(map(lambda x, y: x + y, mtr, lvr))
-
-    def polyval(
-        self,
-        coefs: list[float | int],
-        value: float | int,
-    ):
-        """
-        apply the polynomial coefficients to a given value.
-
-        Parameters
-        ----------
-        coefs : list[float  |  int]
-            the coefficients of the polynomial (higher order first)
-
-        value : float | int
-            the value to be be multiplied by the coefficients
-
-        Returns
-        -------
-        y: float
-            the result of the calculation.
-        """
-        out = 0
-        for i, c in enumerate(coefs):
-            out += c * value ** (len(coefs) - i - 1)
-        return float(out)
-
-    def symmetry(
-        self,
-        val1: float | int,
-        val2: float | int,
-    ):
-        """
-        return the symmetry index between the two values
-
-        Parameters
-        ----------
-        val1 : list[float  |  int]
-            the first array
-
-        val2 : list[float  |  int]
-            the second array
-
-        Returns
-        -------
-        sym: list[float]
-            the symmetry at each time instant
-        """
-        num = abs(val2) - abs(val1)
-        den = abs(val1) + abs(val2)
-        return 100.0 * (1 if den == 0 else num / den)
-
-    def der1(
-        self,
-        y0: float | int,
-        y2: float | int,
-        x0: float | int,
-        x2: float | int,
-    ):
-        """
-        return the speed value at time instant 1 given the samples at time instant
-        0 and 2.
-
-        Parameters
-        ----------
-        y0: float | int,
-            the parameter value at instant 0
-
-        y2: float | int,
-            the parameter value at instant 2
-
-        x0: float | int,
-            the time instant 0
-
-        x2: float | int,
-            the time instant 2
-
-        Returns
-        -------
-        speed: float
-            the first derivative at time instant 1
-        """
-        num = y2 - y0
-        den = x2 - x0
-        return 0 if den == 0 else (num / den)
-
-    def der2(
-        self,
-        y0: float | int,
-        y1: float | int,
-        y2: float | int,
-        x0: float | int,
-        x1: float | int,
-        x2: float | int,
-    ):
-        """
-        return the second derivative at time instant 1 given the samples at time
-        instant 0 and 2.
-
-        Parameters
-        ----------
-        y0: float | int,
-            the parameter value at instant 0
-
-        y1: float | int,
-            the parameter value at instant 1
-
-        y2: float | int,
-            the parameter value at instant 2
-
-        x0: float | int,
-            the time instant 0
-
-        x1: float | int
-            the time instant 1
-
-        x2: float | int,
-            the time instant 2
-
-        Returns
-        -------
-        acc: float
-            the second derivative at time instant 1
-        """
-        d10 = self.der1(y0, y1, x0, x1)
-        d12 = self.der1(y1, y2, x1, x2)
-        return self.der1(d10, d12, (x0 + x1) / 2, (x1 + x2) / 2)
-
-    def slice(
-        self,
-        start: int | None,
-        stop: int | None,
-    ):
-        """
-        slice the object in a subset
-
-        Parameters
-        ----------
-        start: int | None,
-            the starting point of the slice. If None, the slice will consider
-            the first sample as start.
-
-        stop: int | None,
-            the ending point of the slice. If None, the slice will consider
-            the last sample as stop.
-
-        inplace: bool = False,
-            if True the actual object is sliced. If False a sliced copy is
-            returned.
-
-        Returns
-        -------
-        sliced: Product
-            a slice of the object.
-        """
-        if self.is_empty():
-            return self.copy()
-        init = max(0, 0 if start is None else (start - 1))
-        end = min(
-            len(self.time_s) - 1,  # type: ignore
-            len(self.time_s) if stop is None else (stop + 1),  # type: ignore
-        )  # type: ignore
-        raw_index = list(range(init, end))
-        obj = self.copy()
-        trq = [self._raw_torque_nm[i] for i in raw_index]  # type: ignore
-        obj.set_raw_torque_nm(trq)  # type: ignore
-        pos = [self._raw_position_rad[i] for i in raw_index]  # type: ignore
-        obj.set_raw_position_rad(pos)  # type: ignore
-        tim = [self._raw_time_s[i] for i in raw_index]  # type: ignore
-        obj.set_raw_time_s(tim)  # type: ignore
-        sym = [self._raw_symmetry[i] for i in raw_index]  # type: ignore
-        obj.set_raw_symmetry(sym)  # type: ignore
-        return obj
-
-    def set_raw_torque_nm(
-        self,
-        torque_nm: list[float] | None,
-    ):
-        """
-        set the input torque in Nm
-
-        Parameters
-        ----------
-        torque_nm: list[float] | None
-            set the target torque
-        """
-        self._raw_torque_nm = torque_nm
-
-    def set_raw_position_rad(
-        self,
-        position_rad: list[float] | None,
-    ):
-        """
-        set the input position in rad
-
-        Parameters
-        ----------
-        position_rad: list[float] | None
-            set the target position
-        """
-        self._raw_position_rad = position_rad
-
-    def set_raw_time_s(
-        self,
-        time_s: list[float] | None,
-    ):
-        """
-        set the input time in s
-
-        Parameters
-        ----------
-        time_s: list[float] | None
-            set the target time
-        """
-        self._raw_time_s = time_s
-
-    def set_raw_symmetry(
-        self,
-        symm: list[float] | None,
-    ):
-        """
-        set the input symmetry
-
-        Parameters
-        ----------
-        symmetry: list[float] | None
-            set the target symmetry
-        """
-        self._raw_symmetry = symm
-
-    def values(self):
-        """return the values contained by the object"""
-        return iter(
-            [
-                self.time_s,
-                self.position_m,
-                self.load_kgf,
-                self.power_w,
-                self.speed_ms,
-                self.symmetry,
-                self.inertia_kgf,
-                self.lever_kgf,
-            ]
-        )
-
-    def keys(self):
-        """return the keys contained by the object"""
-        return iter(
-            [
-                "time_s",
-                "position_m",
-                "load_kgf",
-                "power_w",
-                "speed_ms",
-                "symmetry_%",
-                "inertia_kgf",
-                "lever_kgf",
-            ]
-        )
-
-    def items(self):
-        """return the pairs of key, value contained by the object"""
-        objs = [(i, j) for i, j in zip(list(self.keys()), list(self.values()))]
-        return iter(objs)
+    # * methods
 
     def copy(self):
         """make a copy of the object"""
         return copy.deepcopy(self)
 
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-        has_cells: bool = False,
+    def as_dataframe(self):
+        """return a summary table containing the resulting data"""
+        out = {
+            ("Time", "s"): self.time_s,
+            ("Lever Load", "kgf"): self.load_lever_kgf,
+            ("Motor Load", "Nm"): self.load_motor_nm,
+            ("Lever Position", "m"): self.position_lever_m,
+            ("Lever Position", "deg"): self.position_lever_deg,
+            ("Motor Position", "rad"): self.position_motor_rad,
+            ("Lever Speed", "m/s"): self.speed_lever_ms,
+            ("Lever Speed", "deg/s"): self.speed_lever_degs,
+            ("Motor Speed", "rad/s"): self.speed_motor_rads,
+            ("Power", "W"): self.power_w,
+        }
+        return pd.DataFrame(out)
+
+    # * constructors
+
+    def __init__(
+        self,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
+        # check the entries
+        try:
+            self._time_s = np.array([time_s]).astype(float).flatten()
+        except Exception as exc:
+            raise ValueError(
+                "time must be castable to a numpy array of floats"
+            ) from exc
+        try:
+            self._position_motor_rad = (
+                np.array([motor_position_rad]).astype(float).flatten()
+            )
+        except Exception as exc:
+            raise ValueError(
+                "motor_position_rad must be castable to a numpy array of floats"
+            ) from exc
+        try:
+            self._load_motor_nm = np.array([motor_load_nm]).astype(float).flatten()
+        except Exception as exc:
+            raise ValueError(
+                "motor_load_nm must be castable to a numpy array of floats"
+            ) from exc
+
+        # check the length of each element
+        if (
+            not len(self.time_s)
+            == len(self.position_motor_rad)
+            == len(self.load_motor_nm)
+        ):
+            msg = "time_s, motor_position_rad and motor_load_nm must all have "
+            msg += "the same number of samples."
+            raise ValueError(msg)
+
+    @classmethod
+    def from_file(cls, file: str):
         """
         read raw data from file
 
@@ -427,27 +228,6 @@ class Product:
         ----------
         file : str
             the path to the file
-
-        has_cells : bool
-            if True load cell data are searched within the input file
-
-        Returns
-        -------
-        raw: dict[str, list[float]]
-            a dictionary with keys "time", "position", "torque", "symmetry"
-
-        Raises
-        ------
-        RuntimeError
-            in case something went wrong during the data processing
-
-        AssertionError
-            in case the provided file was not correct.
-
-        Note
-        ----
-        This function is for internal use only and serves as wrapper to
-        simplify the implementation of the "from_file" method.
         """
 
         # check the inputs
@@ -457,1789 +237,168 @@ class Product:
         assert file.endswith(".txt") or file.endswith(".csv"), msg
 
         # get the data
-        with open(file, "r", encoding="utf-8") as buf:
-            obj = [i.replace(",", ".").split("|") for i in buf.readlines()]
+        obj = pd.read_csv(file, sep="|")
+        col = obj.columns[[0, 2, 5]]
+        obj = obj[col].astype(str).map(lambda x: x.replace(",", "."))
+        time, load, pos = [i.astype(float) for i in obj.values.T]
 
-        # get the relevant indices
-        if has_cells:
-            lbls = ["Cell1", "Cell2"]
-            cells = [i for i, v in enumerate(obj[0]) if v in lbls]
-        else:
-            cells = []
-        indices = [5, 2, 0] + cells
-
-        # extract the raw data
-        arr: list[list[float]] = []
-        obj.pop(0)
-        for i in indices:
-            arr += [[float(obj[j][i]) for j in range(len(obj))]]
-        if len(cells) > 0:
-            pos, load, time, cell1, cell2 = arr
-            sym = list(map(cls.symmetry, cell1, cell2))
-        else:
-            pos, load, time = arr
-            sym = [None for i in range(len(pos))]
-
-        # merge into dict
-        labels = ["time", "position", "torque", "symm"]
-        values = [time, pos, load, sym]
-        return cls(**dict(zip(labels, values)))
-
-    @property
-    @abstractmethod
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return NotImplementedError
-
-    @abstractmethod
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ):
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return NotImplementedError
-
-    @abstractmethod
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return NotImplementedError
-
-    @property
-    @abstractmethod
-    def name(self):
-        """the name of the product"""
-        return NotImplementedError
-
-    def _get_lever_position(
-        self,
-        position: float | int,
-        torque: float | int,
-    ):
-        """
-        return the position in mm
-
-        Parameters
-        ----------
-        position : list[float | int]
-            the raw postion in rad
-
-        torque : list[float | int]
-            the measured torque from the inverter
-
-        Returns
-        -------
-        lever_position: list[float]
-            the lever position in m
-        """
-        cor = max(self.polyval(self.rom_correction_coefs, abs(torque)), 0)
-        return (cor + position) * self.pulley_radius / self.lever_radius
-
-    def _get_lever_inertia(
-        self,
-        time0: float | int,
-        time1: float | int,
-        time2: float | int,
-        pos0: float | int,
-        pos1: float | int,
-        pos2: float | int,
-    ) -> float:
-        """
-        return the lever inertial force in kgf according to the actual
-        position in m
-
-        Parameters
-        ----------
-        time0 : float | int
-            the instant t-1
-
-        time1 : float | int
-            the actual instant
-
-        time2 : float | int
-            the next time instant
-
-        pos0 : float | int
-            the instantaneous (corrected) lever position in m at the instant t-1
-
-        pos1 : float | int
-            the instantaneous (corrected) lever position in m at actual instant
-
-        pos2 : float | int
-            the instantaneous (corrected) lever position in m at next time
-            instant.
-
-        Returns
-        -------
-        inertial_force: float
-            the inertial force in kgf
-        """
-        ang_acc = self.der2(pos0, pos1, pos2, time0, time1, time2) / self.lever_radius
-        inertia = self._get_lever_weight(pos1) * ang_acc * self.lever_com_radius
-        return inertia * self.lever_number
-
-    def _get_load(
-        self,
-        torque: float | int,
-    ):
-        """
-        convert the load corresponding to the torque read by the motor.
-
-        Parameters
-        ----------
-        torque : float | int,
-            the measured torque from the inverter
-
-        Returns
-        -------
-        load: float,
-            the load corresponding to the entered torque in kgf
-        """
-        return self.polyval(self.load_conversion_coefs, torque)
-
-    def is_empty(self):
-        """
-        check whether the product contains data
-        """
-        return any(v is None for v in self.values())
+        # return
+        return cls(time, pos, load)  # type: ignore
 
 
 class ChestPress(Product):
     """Chest press class object"""
 
-    _CAMME_RATIO = 0.74
-    _SPRING_CORRECTION = 1.15
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [-0.0000970270993668, 0.0284363503605837, -0.1454105176656738]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.87489882
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.592188472
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(2)
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return 4.0 * self.lever_number
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return 1.0
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.96217, 2.97201]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "CHEST PRESS"
+    _spring_correction: float = 1.15
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 4.0
+    _camme_ratio: float = 0.74
+    _lever_number: int = 1  # ? TO BE CHECKED might be 1
+    _lever_radius_m: float = 0.87489882
+    _rom_correction_coefs: list[float] = [
+        -0.0000970270993668,
+        0.0284363503605837,
+        -0.1454105176656738,
+    ]
+    _rm1_coefs: list[float] = [0.96217, 2.97201]
 
     def __init__(
         self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
-        super().__init__(time, position, torque, symm)
-
-
-class VerticalTraction(Product):
-    """Vertical Traction class object"""
-
-    _CAMME_RATIO = 0.6
-    _SPRING_CORRECTION = 1.1
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [-0.0000593206445389, 0.0259836372360176, -0.0980811957930012]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.7032
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around which it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.0464
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(2)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return -3.0 * self.lever_number
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        betas = [-0.000000000192, -0.000000366669, +0.000154455574]
-        betas += [-0.048948857016, +0.105833758047]
-        pos = min(max(position, rom0), rom1)
-        return self.polyval(betas, pos)
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [1.05070, 1.00000]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "VERTICAL TRACTION"
-
-    def __init__(
-        self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
-    ):
-        super().__init__(time, position, torque, symm)
-
-
-class LowRow(Product):
-    """Low Row class object"""
-
-    _CAMME_RATIO = 0.64
-    _SPRING_CORRECTION = 1.0
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [0, 0, 0]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.7032
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 0.0464
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return 5 * self.lever_number
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        betas = [0.000000002839, -0.000002774527, 0.000233480221]
-        betas += [0.059293138715, 8.971309619962]
-        pos = min(max(position, rom0), rom1)
-        return self.polyval(betas, pos)
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.69234, 3.38309]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "LOW ROW"
-
-    def __init__(
-        self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
-    ):
-        super().__init__(time, position, torque, symm)
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
 class LegPress(Product):
     """Leg Press class object"""
 
-    _CAMME_RATIO = 1
-    _SPRING_CORRECTION = 1
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [-0.0000594298355666, 0.0155680740573513, -0.0022758912872085]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.08175
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        # l_weight = 77.4  # kg
-        # rail_incline = 10  # degrees
-        # true_weight = l_weight * float(sin(rail_incline / 180 * pi)) = 24.5
-        return 24.5
-        # return  9 + 85 * float(sin(10 / 180 * pi))
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        pos = min(max(position, rom0), rom1) / (rom1 - rom0)
-        betas = [0.4, 0.6]
-        return self.polyval(betas, pos)
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.65705, 9.17845]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "LEG PRESS"
+    _spring_correction: float = 1
+    _pulley_radius_m: float = 0.08175
+    _lever_weight_kgf: float = 9.0 + 0.17 * 85
+    _camme_ratio: float = 1
+    _lever_number: int = 1
+    _lever_radius_m: float = 1
+    _rom_correction_coefs: list[float] = [
+        -0.0000594298355666,
+        0.0155680740573513,
+        -0.0022758912872085,
+    ]
+    _rm1_coefs: list[float] = [0.65705, 9.17845]
 
     def __init__(
         self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
-        super().__init__(time, position, torque, symm)
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
 class LegPressREV(LegPress):
     """Leg Press REV class object"""
 
-    @property
-    def name(self):
-        """the name of the product"""
-        return "LEG PRESS REV"
-
     def __init__(
         self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
-        super().__init__(time, position, torque, symm)
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
 class AdjustablePulleyREV(Product):
     """Adjustable Pulley REV class object"""
 
-    _CAMME_RATIO = 1
-    _SPRING_CORRECTION = 1
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [0, 1, 1]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return 0
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return 1
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [1, 0]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "ADJUSTABLE PULLEY REV"
+    _spring_correction: float = 1
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 0.01
+    _camme_ratio: float = 0.25
+    _lever_number: int = 2
+    _lever_radius_m: float = 0.054
+    _rom_correction_coefs: list[float] = [0, 0, 0]
+    _rm1_coefs: list[float] = [1, 0]
 
     def __init__(
         self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
-        super().__init__(time, position, torque, symm)
-
-
-class LegCurl(Product):
-    """Leg Curl class object"""
-
-    _CAMME_RATIO = 0.598
-    _SPRING_CORRECTION = 0.79
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [0.7467342612179453, -0.0610892700593208, 0.0014257885939677]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return 7
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return 1
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.697143287834957, 2.75420348997761]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "LEG CURL"
-
-    def __init__(
-        self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
-    ):
-        super().__init__(time, position, torque, symm)
-
-
-class ShoulderPress(Product):
-    """ShoulderPress class object"""
-
-    _CAMME_RATIO = 0.794
-    _SPRING_CORRECTION = 1.0
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [-0.0911406828188467, 0.0242885910602534, -0.0001308668672017]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return -1.2
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return 1
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.859190212429426, 1.73801292470931]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "SHOULDER PRESS"
-
-    def __init__(
-        self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
-    ):
-        super().__init__(time, position, torque, symm)
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
 class LegExtension(Product):
-    """ShoulderPress class object"""
+    """Leg Extension class object"""
 
-    _CAMME_RATIO = 0.738
-    _SPRING_CORRECTION = 0.79
-
-    @property
-    def rom_correction_coefs(
-        self,
-    ):
-        """
-        the correction coefficients of the position readings of the motor
-        according to the torque generated by the motor.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 3 float defining the coefficients of the 2nd order
-            polynomial which corrects the rom positioning according to
-            the raw torque (in Nm) of read by the motor.
-        """
-        return [0.1237962826137063, -0.0053627811034270, 0.0003232899485875]
-
-    @property
-    def pulley_radius(
-        self,
-    ):
-        """
-        return the radius of the pulley from which the motor is directly
-        linked to.
-
-        Returns
-        -------
-        radius: float
-            the radius of the pulley in m.
-        """
-        return 0.054
-
-    @property
-    def lever_radius(
-        self,
-    ):
-        """
-        return the radius of the levers moved by the user.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_com_radius(
-        self,
-    ):
-        """
-        return the radius generated by the CoM of the lever with respect to
-        the fuclrum around with it rotates.
-
-        Returns
-        -------
-        radius: float
-            the radius of the lever moved by the user in m.
-        """
-        return 1.0
-
-    @property
-    def lever_number(
-        self,
-    ):
-        """
-        return the number of levers of the product
-        """
-        return int(1)
-
-    @property
-    def load_conversion_coefs(
-        self,
-    ):
-        """
-        the coefficients to be applied to the torque in Nm to extract the
-        generated load in kgf.
-
-        Returns
-        -------
-        coefs: list[float]
-            a list of 2 floats defining the coefficients of the 1st order
-            polynomial which converts the raw torque positioning to the output
-            load.
-        """
-        coefs = self._CAMME_RATIO / self._SPRING_CORRECTION
-        coefs = coefs / self.pulley_radius / G
-        return [coefs, 0]
-
-    def _get_lever_weight(
-        self,
-        position: float | int,
-    ):
-        """
-        return the lever weight according to the actual position in m
-
-        Parameters
-        ----------
-        position : list[float] | float | int
-            the instantaneous (corrected) lever position in m
-
-        Returns
-        -------
-        weight: float
-            the weight of the lever
-        """
-        return 0
-
-    @classmethod
-    def from_file(
-        cls,
-        file: str,
-    ):
-        """
-        read raw data from file
-
-        Parameters
-        ----------
-        file : str
-            the path to the file
-        """
-        return super().from_file(file, False)
-
-    def _get_cam_correction(
-        self,
-        position: float,
-        rom0: float,
-        rom1: float,
-    ) -> float:
-        """
-        return the isotonic cam correction for the actual position.
-
-        Parameters
-        ----------
-        position: float
-            the istantaneous position at which the correction is required.
-
-        rom0: float
-            the lower end of the user's ROM.
-
-        rom1: float
-            the upper end of the user's ROM.
-
-        Returns
-        -------
-        correction: float
-            the correction to be applied to the output force according to the
-            isotonic cam profile.
-        """
-        return 1
-
-    @property
-    def rm1_coefs(
-        self,
-    ):
-        """
-        return the conversion coefficient for the 1RM estimation.
-        """
-        return [0.7351, 6]
-
-    @property
-    def name(self):
-        """the name of the product"""
-        return "LEG EXTENSION"
+    _spring_correction: float = 0.79
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 9.0 + 0.17 * 85
+    _camme_ratio: float = 0.738
+    _lever_number: int = 1
+    _lever_radius_m: float = 1  # ? TO BE CHECKED
+    _rom_correction_coefs: list[float] = [
+        0.1237962826137063,
+        -0.0053627811034270,
+        0.0003232899485875,
+    ]
+    _rm1_coefs: list[float] = [0.7351, 6]
 
     def __init__(
         self,
-        time: list[float] | None = None,
-        position: list[float] | None = None,
-        torque: list[float] | None = None,
-        symm: list[float] | None = None,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
     ):
-        super().__init__(time, position, torque, symm)
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
+
+
+class LegExtensionREV(LegExtension):
+    """Leg Extension REV class object"""
+
+    _spring_correction: float = 1
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 0.875
+    _camme_ratio: float = 0.689
+    _lever_number: int = 1
+    _lever_radius_m: float = 0.21
+    _rom_correction_coefs: list[float] = [
+        0.000201694,
+        -0.030051020,
+        0.03197279,
+    ]
+    _rm1_coefs: list[float] = [0.7351, 6]
+
+    def __init__(
+        self,
+        time_s: NDArray[np.floating],
+        motor_position_rad: NDArray[np.floating],
+        motor_load_nm: NDArray[np.floating],
+    ):
+        super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
 #! CONSTANTS
 
 
+G = 9.80665
+
 __all__ = [
     "PRODUCTS",
     "ChestPress",
     "LegPress",
-    "LegPressREV",
-    "LowRow",
-    "VerticalTraction",
-    "AdjustablePulleyREV",
-    "ShoulderPress",
-    "LegCurl",
     "LegExtension",
+    "LegPressREV",
+    "AdjustablePulleyREV",
+    "LegExtensionREV",
 ]
-
-G = 9.80665
 
 PRODUCTS = {
     "CHEST PRESS": ChestPress,
     "LEG PRESS": LegPress,
-    "LEG PRESS REV": LegPressREV,
-    "LOW ROW": LowRow,
-    "VERTICAL TRACTION": VerticalTraction,
-    "ADJUSTABLE PULLEY REV": AdjustablePulleyREV,
-    "LEG CURL": LegCurl,
-    "SHOULDER PRESS": ShoulderPress,
     "LEG EXTENSION": LegExtension,
+    "LEG PRESS REV": LegPressREV,
+    "ADJUSTABLE PULLEY REV": AdjustablePulleyREV,
+    "LEG EXTENSION REV": LegExtensionREV,
 }

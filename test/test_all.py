@@ -8,8 +8,8 @@ from pandas import DataFrame
 from numpy import isclose
 import sys
 
-sys.path += ["src"]
-import labio
+sys.path += [dirname(dirname(__file__))]
+import src.labio as labio
 
 
 #! CONSTANTS
@@ -101,17 +101,12 @@ def test_cosmed_xlsx():
 
 def test_biostrength():
     lp_file = join(READ_PATH, "biostrength_leg_press_read.txt")
-    try:
-        rdf = labio.biostrength.LegPress.from_file(lp_file)
-        rdf = DataFrame({i: v for i, v in rdf.items()})
-    except Exception:
-        rdf = None
-    assert isinstance(rdf, DataFrame)
+    print(labio.biostrength.LegPress.from_file(lp_file).as_dataframe())
 
 
 if __name__ == "__main__":
-    test_tdf()
     test_biostrength()
+    test_tdf()
     test_trc()
     test_mot()
     test_cosmed_xlsx()
