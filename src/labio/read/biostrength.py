@@ -30,7 +30,7 @@ class Product:
     _rm1_coefs: list[float] = [1, 0]
 
     _position_motor_rad: NDArray[np.floating[Any]]
-    _load_motor_nm: NDArray[np.floating[Any]]
+    _load_lever_kgf: NDArray[np.floating[Any]]
     _time_s: NDArray[np.floating[Any]]
 
     # * attributes
@@ -68,7 +68,13 @@ class Product:
     @property
     def load_motor_nm(self):
         """return the motor load in Nm"""
-        return self._load_motor_nm[1:-1].astype(float)
+        return (
+            (self.load_lever_kgf - self.lever_weight_kgf)
+            * G
+            * self.pulley_radius_m
+            / self.spring_correction
+            * self.camme_ratio
+        )
 
     @property
     def lever_number(self):
@@ -102,15 +108,7 @@ class Product:
     @property
     def load_lever_kgf(self):
         """return the calculated lever weight"""
-        return (
-            self.load_motor_nm
-            / self.pulley_radius_m
-            / G
-            / self.lever_number
-            * self.camme_ratio
-            / self.spring_correction
-            + self.lever_weight_kgf
-        ).astype(float)
+        return self._load_lever_kgf[1:-1].astype(float)
 
     @property
     def speed_motor_rads(self):
@@ -127,7 +125,7 @@ class Product:
         return the calculated speed at the lever level in deg/s for each sample
         """
         rad = self._position_motor_rad
-        rad += np.polyval(self.rom_correction_coefs, self._load_motor_nm)
+        rad += np.polyval(self.rom_correction_coefs, self.load_motor_nm)
         deg = rad * 180 / np.pi / self._lever_number
         deg = deg * self._lever_radius_m / self._pulley_radius_m
         num = deg[:-2] - deg[2:]
@@ -185,7 +183,7 @@ class Product:
         self,
         time_s: NDArray[np.floating],
         motor_position_rad: NDArray[np.floating],
-        motor_load_nm: NDArray[np.floating],
+        load_kgf: NDArray[np.floating],
     ):
         # check the entries
         try:
@@ -203,7 +201,8 @@ class Product:
                 "motor_position_rad must be castable to a numpy array of floats"
             ) from exc
         try:
-            self._load_motor_nm = np.array([motor_load_nm]).astype(float).flatten()
+            self._load_lever_kgf = np.array([load_kgf]).astype(float).flatten()
+            self._load_lever_kgf += self._lever_weight_kgf
         except Exception as exc:
             raise ValueError(
                 "motor_load_nm must be castable to a numpy array of floats"
