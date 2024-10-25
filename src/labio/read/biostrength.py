@@ -48,22 +48,22 @@ class Product:
     @property
     def pulley_radius_m(self):
         """pulley radius coefficient in m for each time sample"""
-        return np.tile(self._spring_correction, len(self.load_motor_nm))
+        return np.tile(self._spring_correction, len(self.time_s))
 
     @property
     def lever_weight_kgf(self):
         """lever weight coefficient in kgf for each time sample"""
-        return np.tile(self._lever_weight_kgf, len(self.load_motor_nm))
+        return np.tile(self._lever_weight_kgf, len(self.time_s))
 
     @property
     def camme_ratio(self):
         """camme ratio coefficient for each time sample"""
-        return np.tile(self._camme_ratio, len(self.load_motor_nm))
+        return np.tile(self._camme_ratio, len(self.time_s))
 
     @property
     def spring_correction(self):
         """spring correction coefficient for each time sample"""
-        return np.tile(self._spring_correction, len(self.load_motor_nm))
+        return np.tile(self._spring_correction, len(self.time_s))
 
     @property
     def load_motor_nm(self):
@@ -79,7 +79,7 @@ class Product:
     @property
     def lever_number(self):
         """number of levers"""
-        return np.tile(self._lever_number, len(self.load_motor_nm))
+        return np.tile(self._lever_number, len(self.time_s))
 
     @property
     def rom_correction_coefs(self):
@@ -96,7 +96,7 @@ class Product:
     @property
     def lever_radius_m(self):
         """radius of the lever(s) in m for each sample"""
-        return np.tile(self._lever_radius_m, len(self.load_motor_nm)).astype(float)
+        return np.tile(self._lever_radius_m, len(self.time_s)).astype(float)
 
     @property
     def position_lever_m(self):
