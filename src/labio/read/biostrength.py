@@ -69,7 +69,7 @@ class Product:
     @property
     def load_motor_nm(self):
         """return the motor load in Nm"""
-        return self._load_motor_nm
+        return self._load_motor_nm[1:-1]
 
     @property
     def lever_number(self):
@@ -106,10 +106,10 @@ class Product:
         return (
             self.load_motor_nm
             / G
-            / self.pulley_radius_m
-            * self.camme_ratio
-            / self.spring_correction
-            + self.lever_weight_kgf
+            / self._pulley_radius_m
+            * self._camme_ratio
+            / self._spring_correction
+            + self._lever_weight_kgf
         )
 
     @property
@@ -212,11 +212,11 @@ class Product:
             ) from exc
         try:
             self._load_motor_nm = (
-                (load_kgf - self.lever_weight_kgf)
+                (load_kgf - self._lever_weight_kgf)
                 * G
-                * self.pulley_radius_m
-                * self.spring_correction
-                / self.camme_ratio
+                * self._pulley_radius_m
+                * self._spring_correction
+                / self._camme_ratio
             )
 
         except Exception as exc:
