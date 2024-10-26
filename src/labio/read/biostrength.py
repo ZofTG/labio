@@ -28,9 +28,10 @@ class Product:
     _lever_radius_m: float = 0.054
     _rom_correction_coefs: list[float] = [0, 0, 0]
     _rm1_coefs: list[float] = [1, 0]
+    _torque_load_coefs: list[float] = [1, 0]
 
     _position_motor_rad: NDArray[np.floating[Any]]
-    _load_lever_kgf: NDArray[np.floating[Any]]
+    _load_motor_nm: NDArray[np.floating[Any]]
     _time_s: NDArray[np.floating[Any]]
 
     # * attributes
@@ -68,13 +69,7 @@ class Product:
     @property
     def load_motor_nm(self):
         """return the motor load in Nm"""
-        return (
-            (self.load_lever_kgf - self.lever_weight_kgf)
-            * G
-            * self.pulley_radius_m
-            / self.spring_correction
-            * self.camme_ratio
-        )
+        return self._load_motor_nm
 
     @property
     def lever_number(self):
@@ -108,7 +103,14 @@ class Product:
     @property
     def load_lever_kgf(self):
         """return the calculated lever weight"""
-        return self._load_lever_kgf[1:-1].astype(float)
+        return (
+            self.load_motor_nm
+            / G
+            / self.pulley_radius_m
+            * self.camme_ratio
+            / self.spring_correction
+            + self.lever_weight_kgf
+        )
 
     @property
     def speed_motor_rads(self):
@@ -149,6 +151,14 @@ class Product:
     def rm1_coefs(self):
         """1RM coefficients with higher order first"""
         return self._rm1_coefs
+
+    @property
+    def correction_coefs(self):
+        """
+        return the correction coefficients that extract the
+        load in kgf from the input Torque.
+        """
+        return self._torque_load_coefs
 
     @property
     def name(self):
@@ -201,8 +211,14 @@ class Product:
                 "motor_position_rad must be castable to a numpy array of floats"
             ) from exc
         try:
-            self._load_lever_kgf = np.array([load_kgf]).astype(float).flatten()
-            self._load_lever_kgf += self._lever_weight_kgf
+            self._load_motor_nm = (
+                (load_kgf - self.lever_weight_kgf)
+                * G
+                * self.pulley_radius_m
+                * self.spring_correction
+                / self.camme_ratio
+            )
+
         except Exception as exc:
             raise ValueError(
                 "motor_load_nm must be castable to a numpy array of floats"
@@ -239,7 +255,8 @@ class Product:
         obj = pd.read_csv(file, sep="|")
         col = obj.columns[[0, 2, 5]]
         obj = obj[col].astype(str).map(lambda x: x.replace(",", "."))
-        time, load, pos = [i.astype(float) for i in obj.values.T]
+        time, load, pos = obj.astype(float).values.T
+        load = cls._torque_load_coefs[0] * load + cls._torque_load_coefs[1]
 
         # return
         return cls(time, pos, load)  # type: ignore
@@ -285,6 +302,7 @@ class LegPress(Product):
         -0.0022758912872085,
     ]
     _rm1_coefs: list[float] = [0.65705, 9.17845]
+    _torque_load_coefs: list[float] = [1.249224, -0.828683]
 
     def __init__(
         self,
@@ -333,7 +351,7 @@ class LegExtension(Product):
 
     _spring_correction: float = 0.79
     _pulley_radius_m: float = 0.054
-    _lever_weight_kgf: float = 9.0 + 0.17 * 85
+    _lever_weight_kgf: float = 1  # ? TO BE CHECKED
     _camme_ratio: float = 0.738
     _lever_number: int = 1
     _lever_radius_m: float = 1  # ? TO BE CHECKED
@@ -343,6 +361,7 @@ class LegExtension(Product):
         0.0003232899485875,
     ]
     _rm1_coefs: list[float] = [0.7351, 6]
+    _torque_load_coefs: list[float] = [1.042277, 0.072454]
 
     def __init__(
         self,
