@@ -49,7 +49,7 @@ class Product:
     @property
     def pulley_radius_m(self):
         """pulley radius coefficient in m for each time sample"""
-        return np.tile(self._spring_correction, len(self.time_s))
+        return np.tile(self._pulley_radius_m, len(self.time_s))
 
     @property
     def lever_weight_kgf(self):
@@ -69,7 +69,7 @@ class Product:
     @property
     def load_motor_nm(self):
         """return the motor load in Nm"""
-        return self._load_motor_nm[1:-1]
+        return self._load_motor_nm[1:-1].astype(float)
 
     @property
     def lever_number(self):
@@ -96,9 +96,8 @@ class Product:
     @property
     def position_lever_m(self):
         """return the calculated position of the lever in meters"""
-        return (self.position_lever_deg / 180 * np.pi * self.lever_radius_m).astype(
-            float
-        )
+        out = self.position_lever_deg / 180 * np.pi * self.lever_radius_m
+        return out.astype(float)
 
     @property
     def load_lever_kgf(self):
@@ -107,9 +106,9 @@ class Product:
             self.load_motor_nm
             / G
             / self._pulley_radius_m
-            * self._camme_ratio
-            / self._spring_correction
-            + self._lever_weight_kgf
+            * self.camme_ratio
+            / self.spring_correction
+            + self.lever_weight_kgf
         )
 
     @property
@@ -127,7 +126,7 @@ class Product:
         return the calculated speed at the lever level in deg/s for each sample
         """
         rad = self._position_motor_rad
-        rad += np.polyval(self.rom_correction_coefs, self.load_motor_nm)
+        rad += np.polyval(self.rom_correction_coefs, self._load_motor_nm)
         deg = rad * 180 / np.pi / self._lever_number
         deg = deg * self._lever_radius_m / self._pulley_radius_m
         num = deg[:-2] - deg[2:]
@@ -262,31 +261,6 @@ class Product:
         return cls(time, pos, load)  # type: ignore
 
 
-class ChestPress(Product):
-    """Chest press class object"""
-
-    _spring_correction: float = 1.15
-    _pulley_radius_m: float = 0.054
-    _lever_weight_kgf: float = 4.0
-    _camme_ratio: float = 0.74
-    _lever_number: int = 1  # ? TO BE CHECKED might be 1
-    _lever_radius_m: float = 0.87489882
-    _rom_correction_coefs: list[float] = [
-        -0.0000970270993668,
-        0.0284363503605837,
-        -0.1454105176656738,
-    ]
-    _rm1_coefs: list[float] = [0.96217, 2.97201]
-
-    def __init__(
-        self,
-        time_s: NDArray[np.floating],
-        motor_position_rad: NDArray[np.floating],
-        motor_load_nm: NDArray[np.floating],
-    ):
-        super().__init__(time_s, motor_position_rad, motor_load_nm)
-
-
 class LegPress(Product):
     """Leg Press class object"""
 
@@ -313,8 +287,22 @@ class LegPress(Product):
         super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
-class LegPressREV(LegPress):
-    """Leg Press REV class object"""
+class LegExtension(Product):
+    """Leg Extension class object"""
+
+    _spring_correction: float = 0.79
+    _pulley_radius_m: float = 0.054
+    _lever_weight_kgf: float = 1  # ? TO BE CHECKED
+    _camme_ratio: float = 0.738
+    _lever_number: int = 1
+    _lever_radius_m: float = 1  # ? TO BE CHECKED
+    _rom_correction_coefs: list[float] = [
+        0.1237962826137063,
+        -0.0053627811034270,
+        0.0003232899485875,
+    ]
+    _rm1_coefs: list[float] = [0.7351, 6]
+    _torque_load_coefs: list[float] = [1.042277, 0.072454]
 
     def __init__(
         self,
@@ -346,22 +334,8 @@ class AdjustablePulleyREV(Product):
         super().__init__(time_s, motor_position_rad, motor_load_nm)
 
 
-class LegExtension(Product):
-    """Leg Extension class object"""
-
-    _spring_correction: float = 0.79
-    _pulley_radius_m: float = 0.054
-    _lever_weight_kgf: float = 1  # ? TO BE CHECKED
-    _camme_ratio: float = 0.738
-    _lever_number: int = 1
-    _lever_radius_m: float = 1  # ? TO BE CHECKED
-    _rom_correction_coefs: list[float] = [
-        0.1237962826137063,
-        -0.0053627811034270,
-        0.0003232899485875,
-    ]
-    _rm1_coefs: list[float] = [0.7351, 6]
-    _torque_load_coefs: list[float] = [1.042277, 0.072454]
+class LegPressREV(LegPress):
+    """Leg Press REV class object"""
 
     def __init__(
         self,
@@ -404,19 +378,17 @@ G = 9.80665
 
 __all__ = [
     "PRODUCTS",
-    "ChestPress",
     "LegPress",
     "LegExtension",
-    "LegPressREV",
     "AdjustablePulleyREV",
+    "LegPressREV",
     "LegExtensionREV",
 ]
 
 PRODUCTS = {
-    "CHEST PRESS": ChestPress,
     "LEG PRESS": LegPress,
     "LEG EXTENSION": LegExtension,
-    "LEG PRESS REV": LegPressREV,
     "ADJUSTABLE PULLEY REV": AdjustablePulleyREV,
+    "LEG PRESS REV": LegPressREV,
     "LEG EXTENSION REV": LegExtensionREV,
 }
