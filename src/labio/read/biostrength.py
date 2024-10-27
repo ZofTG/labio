@@ -84,9 +84,9 @@ class Product:
     @property
     def position_lever_deg(self):
         """return the calculated position of the lever in degrees"""
-        rad = self.position_motor_rad
+        rad = self.position_motor_rad / self.lever_number
         rad += np.polyval(self.rom_correction_coefs, self.load_motor_nm)
-        return (rad * 180 / np.pi / self.lever_number).astype(float)
+        return (rad * 180 / np.pi).astype(float)
 
     @property
     def lever_radius_m(self):
@@ -174,14 +174,14 @@ class Product:
         """return a summary table containing the resulting data"""
         out = {
             ("Time", "s"): self.time_s,
-            ("Lever Load", "kgf"): self.load_lever_kgf,
-            ("Motor Load", "Nm"): self.load_motor_nm,
-            ("Lever Position", "m"): self.position_lever_m,
-            ("Lever Position", "deg"): self.position_lever_deg,
-            ("Motor Position", "rad"): self.position_motor_rad,
-            ("Lever Speed", "m/s"): self.speed_lever_ms,
-            ("Lever Speed", "deg/s"): self.speed_lever_degs,
-            ("Motor Speed", "rad/s"): self.speed_motor_rads,
+            ("Load", "kgf"): self.load_lever_kgf,
+            # ("Motor Load", "Nm"): self.load_motor_nm,
+            ("Position", "m"): self.position_lever_m,
+            ("Position", "deg"): self.position_lever_deg,
+            # ("Motor Position", "rad"): self.position_motor_rad,
+            ("Speed", "m/s"): self.speed_lever_ms,
+            ("Speed", "deg/s"): self.speed_lever_degs,
+            # ("Motor Speed", "rad/s"): self.speed_motor_rads,
             ("Power", "W"): self.power_w,
         }
         return pd.DataFrame(out)
@@ -256,6 +256,7 @@ class Product:
         obj = obj[col].astype(str).map(lambda x: x.replace(",", "."))
         time, load, pos = obj.astype(float).values.T
         load = cls._torque_load_coefs[0] * load + cls._torque_load_coefs[1]
+        load += cls._lever_weight_kgf
 
         # return
         return cls(time, pos, load)  # type: ignore
