@@ -84,9 +84,8 @@ class Product:
     @property
     def position_lever_deg(self):
         """return the calculated position of the lever in degrees"""
-        rad = self.position_motor_rad / self.lever_number
-        rad += np.polyval(self.rom_correction_coefs, self.load_motor_nm)
-        return (rad * 180 / np.pi).astype(float)
+        out = self.position_lever_m / self.lever_radius_m * 180 / np.pi
+        return out.astype(float)
 
     @property
     def lever_radius_m(self):
@@ -96,8 +95,7 @@ class Product:
     @property
     def position_lever_m(self):
         """return the calculated position of the lever in meters"""
-        out = self.position_lever_deg / 180 * np.pi * self.lever_radius_m
-        return out.astype(float)
+        return (self.position_motor_rad * self.lever_radius_m).astype(float)
 
     @property
     def load_lever_kgf(self):
@@ -125,21 +123,18 @@ class Product:
         """
         return the calculated speed at the lever level in deg/s for each sample
         """
-        rad = self._position_motor_rad
-        rad += np.polyval(self.rom_correction_coefs, self._load_motor_nm)
-        deg = rad * 180 / np.pi / self._lever_number
-        deg = deg * self._lever_radius_m / self._pulley_radius_m
-        num = deg[:-2] - deg[2:]
-        den = self._time_s[:-2] - self._time_s[2:]
-        return (num / den).astype(float)
+        degs = self.speed_lever_ms / self._lever_radius_m * 180 / np.pi
+        return degs.astype(float)
 
     @property
     def speed_lever_ms(self):
         """
         return the calculated speed at the lever level in m/s for each sample
         """
-        speed = self.speed_lever_degs / 180 * np.pi / self.lever_radius_m
-        return speed.astype(float)
+        num = self._position_motor_rad * self._lever_radius_m
+        num = num[2:] - num[:-2]
+        den = self._time_s[2:] - self._time_s[:-2]
+        return (num / den).astype(float)
 
     @property
     def power_w(self):
@@ -270,7 +265,7 @@ class LegPress(Product):
     _lever_weight_kgf: float = 9.0 + 0.17 * 85
     _camme_ratio: float = 1
     _lever_number: int = 1
-    _lever_radius_m: float = 1
+    _lever_radius_m: float = 0.08175
     _rom_correction_coefs: list[float] = [
         -0.0000594298355666,
         0.0155680740573513,
@@ -296,7 +291,7 @@ class LegExtension(Product):
     _lever_weight_kgf: float = 1  # ? TO BE CHECKED
     _camme_ratio: float = 0.738
     _lever_number: int = 1
-    _lever_radius_m: float = 1  # ? TO BE CHECKED
+    _lever_radius_m: float = 0.21  # ? TO BE CHECKED
     _rom_correction_coefs: list[float] = [
         0.1237962826137063,
         -0.0053627811034270,
