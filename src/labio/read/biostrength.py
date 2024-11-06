@@ -181,6 +181,35 @@ class Product:
         }
         return pd.DataFrame(out)
 
+    def slice(self, start_time: float, stop_time: float):
+        """
+        slice _summary_
+
+        _extended_summary_
+
+        Parameters
+        ----------
+        start_time : float
+            the start time of the slice
+
+        stop_time : float
+            the end time of the slice
+
+        Returns
+        -------
+        sliced: Product
+            a sliced version of the object.
+        """
+        idx = (self._time_s >= start_time) & (self._time_s <= stop_time)
+        idx = np.where(idx)[0]
+
+        obj = self.copy()
+        obj._time_s = self._time_s[idx]
+        obj._position_motor_rad = self._position_motor_rad[idx]
+        obj._load_motor_nm = self._load_motor_nm[idx]
+
+        return obj
+
     # * constructors
 
     def __init__(
