@@ -301,7 +301,7 @@ class LegPress(Product):
         -0.0022758912872085,
     ]
     _rm1_coefs: list[float] = [0.65705, 9.17845]
-    _torque_load_coefs: list[float] = [1.249224, -0.828683]
+    _torque_load_coefs: list[float] = [1.246048, -23.594744]
 
     def __init__(
         self,
